@@ -1,0 +1,7 @@
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+aiohttp>=3.9.0
+python-multipart>=0.0.9
+# deepfake_server.py 전용 (detector 래핑 시에만 필요)
+Pillow>=10.0.0
+numpy>=1.24.0

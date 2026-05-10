@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>예시 사이트</title>
+    <link rel="stylesheet" href="style.css?v=1.2">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <header class="header">
+        <div class="header-content">
+            <div class="header-top-right">
+                <a href="upload.html" class="nav-btn" style="margin-right: 8px;">📤 사진 업로드</a>
+                <a href="takedown.html" class="nav-btn">📢 콘텐츠 신고하기</a>
+            </div>
+        </div>
+    </header>
+
+    <!-- 히어로 섹션 (검색창 포함) -->
+    <section class="hero-section">
+        <div class="hero-content">
+            <h2>크롤링 연습용 예시 갤러리</h2>
+            <p>이미지 업로드·검색·콘텐츠 신고 기능을 테스트할 수 있는 데모 페이지입니다</p>
+            <div class="hero-search-box">
+                <input type="text" id="searchInput" class="hero-search-input" placeholder="무엇을 찾고 계신가요? (예: 바다, 고양이)">
+                <button type="button" class="hero-search-btn">검색</button>
+            </div>
+            <div class="hero-tags">
+                <span>추천:</span>
+                <a href="#">#자연</a>
+                <a href="#">#여행</a>
+                <a href="#">#도시</a>
+                <a href="#">#감성</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- 업로드 섹션을 삭제하고 바로 메인 컨테이너 시작 -->
+
+    <main class="container">
+        <div class="section-header">
+            <h2>🖼️ 갤러리</h2>
+            <button id="clearBtn" class="clear-btn">🗑️ 업로드 사진 초기화</button>
+        </div>
+
+        <!-- 갤러리 컨테이너 -->
+        <div id="gallery" class="gallery">
+            <!-- 업로드된 이미지가 맨 앞에 추가됨 -->
+        </div>
+    </main>
+
+    <footer class="footer">
+        <p>&copy; 2026 크롤링 연습 페이지 - Content Report Center</p>
+    </footer>
+
+    <script src="script.js?v=1.2"></script>
+</body>
+
+</html>

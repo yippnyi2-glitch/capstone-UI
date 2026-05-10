@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>콘텐츠 신고 - 예시 사이트</title>
+    <link rel="stylesheet" href="style.css?v=1.3">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <header class="header">
+        <div class="header-content">
+            <div class="header-title-box">
+                <h1 class="logo"><a href="index.html" style="text-decoration: none; color: inherit;">📢 콘텐츠 신고 센터</a></h1>
+                <p class="subtitle">권리 침해 또는 부적절한 이미지 실시간 신고</p>
+            </div>
+            <div class="header-top">
+                <a href="index.html" class="nav-btn">← 갤러리로 돌아가기</a>
+            </div>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="delete-section" style="margin-top: 20px; display: block;">
+            <div class="delete-container">
+                <h2 class="section-title">📢 콘텐츠 신고</h2>
+                <p class="section-desc">신고를 원하시는 콘텐츠의 URL과 사유를 입력해주세요.</p>
+                <form id="deleteForm" class="delete-form">
+
+                    <!-- 대상 URL -->
+                    <div class="input-group">
+                        <label for="targetUrl">대상 이미지 URL <span class="required-mark">*</span></label>
+                        <input type="text" id="targetUrl" name="targetUrl"
+                            placeholder="https://practice-crawling.com/gallery/img1.jpg" required>
+                        <div id="takedownPreviewContainer" class="takedown-preview-container">
+                            <img id="takedownPreviewImg" class="takedown-preview-img" src="" alt="대상 이미지 미리보기">
+                        </div>
+                    </div>
+
+                    <!-- 삭제 사유 -->
+                    <div class="input-group">
+                        <label for="deleteReason">삭제 사유 <span class="required-mark">*</span></label>
+                        <textarea id="deleteReason" name="deleteReason" placeholder="삭제 요청 사유를 상세히 입력해주세요."
+                            required></textarea>
+                        <div class="quick-chips">
+                            <button type="button" class="chip-btn" data-reason="저작권 침해 (무단 도용)">저작권 침해</button>
+                            <button type="button" class="chip-btn" data-reason="초상권 침해 (본인 동의 없는 사진)">초상권 침해</button>
+                            <button type="button" class="chip-btn" data-reason="불건전한 내용 포함 (음란물, 폭력성 등)">불건전 콘텐츠</button>
+                            <button type="button" class="chip-btn" data-reason="개인정보 유출 (주소, 연락처 등 포함)">개인정보 유출</button>
+                        </div>
+                    </div>
+
+                    <!-- 구분선 -->
+                    <hr class="form-divider">
+                    <p class="form-section-label">📋 신청인 정보</p>
+
+                    <!-- 신청인 이름 -->
+                    <div class="input-group">
+                        <label for="applicantName">이름 (또는 단체명) <span class="required-mark">*</span></label>
+                        <input type="text" id="applicantName" name="applicantName"
+                            placeholder="홍길동 또는 OO 주식회사" required>
+                    </div>
+
+                    <!-- 신청인 이메일 -->
+                    <div class="input-group">
+                        <label for="applicantEmail">이메일 <span class="required-mark">*</span></label>
+                        <input type="email" id="applicantEmail" name="applicantEmail"
+                            placeholder="example@email.com" required>
+                    </div>
+
+                    <!-- 권리 유형 -->
+                    <div class="input-group">
+                        <label for="rightType">신청인 유형 <span class="required-mark">*</span></label>
+                        <select id="rightType" name="rightType" class="input-select" required>
+                            <option value="" disabled selected>선택해주세요</option>
+                            <option value="author">저작권자 본인</option>
+                            <option value="agent">저작권자의 공식 대리인</option>
+                            <option value="portrait">초상권 당사자 본인</option>
+                            <option value="reporter">일반 신고자</option>
+                        </select>
+                    </div>
+
+                    <!-- 구분선 -->
+                    <hr class="form-divider">
+
+                    <!-- 동의 체크박스 -->
+                    <div class="consent-box">
+                        <label class="consent-item">
+                            <input type="checkbox" id="consentTruth" name="consentTruth">
+                            <span>본 신고 내용이 사실임을 확인하며, <strong>허위 신고 시 법적 책임</strong>이 있음에 동의합니다.</span>
+                        </label>
+                        <label class="consent-item">
+                            <input type="checkbox" id="consentPrivacy" name="consentPrivacy">
+                            <span>신청 처리를 위한 <strong>개인정보 수집 및 이용</strong>에 동의합니다.</span>
+                        </label>
+                    </div>
+
+                    <button type="submit" id="deleteSubmitBtn" class="delete-btn">콘텐츠 신고하기</button>
+                </form>
+                <div id="deleteResult" class="delete-result"></div>
+
+                <!-- 접수 완료 화면 (JS에서 표시) -->
+                <div id="submitSuccess" class="submit-success" style="display:none;">
+                    <div class="success-icon">✅</div>
+                    <h3>콘텐츠 신고가 접수되었습니다</h3>
+                    <div class="success-receipt">
+                        <div class="receipt-row">
+                            <span class="receipt-label">접수 번호</span>
+                            <span id="receiptNumber" class="receipt-value">-</span>
+                        </div>
+                        <div class="receipt-row">
+                            <span class="receipt-label">처리 예상 기간</span>
+                            <span class="receipt-value">영업일 3~5일 이내</span>
+                        </div>
+                        <div class="receipt-row">
+                            <span class="receipt-label">결과 통보</span>
+                            <span id="receiptEmail" class="receipt-value">-</span>
+                        </div>
+                    </div>
+                    <p class="success-note">검토 후 조건 충족 시 이미지가 삭제됩니다.<br>허위 신고는 법적 불이익이 발생할 수 있습니다.</p>
+                    <a href="index.html" class="nav-btn" style="display:inline-block; margin-top: 20px;">← 갤러리로 돌아가기</a>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <p>&copy; 2026 크롤링 연습 페이지 - Content Report Center</p>
+    </footer>
+
+    <script src="script.js?v=1.3"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const params = new URLSearchParams(window.location.search);
+            const targetUrl = params.get('target_url');
+            if (targetUrl) {
+                document.getElementById('targetUrl').value = targetUrl;
+            }
+        });
+    </script>
+</body>
+
+</html>

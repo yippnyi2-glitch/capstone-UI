@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crawler Engine Dashboard</title>
+    <link rel="stylesheet" href="dashboard.css">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>CRAWLER MONITOR</h1>
+            <div class="actions">
+                <button id="run-btn" onclick="startCrawl()">START CRAWLING</button>
+            </div>
+        </header>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Total Images</div>
+                <div id="stat-images" class="stat-value">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Uploaded Origin</div>
+                <div id="stat-origin" class="stat-value">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Active Jobs</div>
+                <div id="stat-active" class="stat-value">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Completed</div>
+                <div id="stat-done" class="stat-value">0</div>
+            </div>
+        </div>
+
+        <div class="monitor-section">
+            <div class="section-header">
+                <h2>Site Monitoring</h2>
+                <span class="pulse-icon"></span>
+            </div>
+            <div id="site-grid" class="site-grid">
+                <!-- Site cards will be injected here -->
+            </div>
+        </div>
+
+        <div class="takedown-flow-section">
+            <div class="section-header">
+                <h2>Takedown System Flow</h2>
+                <span class="system-status">ACTIVE</span>
+            </div>
+            <div class="flow-container" id="flow-canvas">
+                <!-- 가상 경로 (Conveyor Belt) -->
+                <div class="conveyor-belt"></div>
+
+                <div class="flow-module" id="mod-gen">
+                    <div class="module-title">삭제요청 생성 모듈</div>
+                    <div class="module-stages">
+                        <div class="stage" id="stage-gen-clean">정리부</div>
+                        <div class="stage" id="stage-gen-decide">결정부</div>
+                        <div class="stage" id="stage-gen-create">생성부</div>
+                    </div>
+                </div>
+
+                <div class="flow-module" id="mod-track">
+                    <div class="module-title">상태 추적 모듈</div>
+                    <div class="module-stages">
+                        <div class="stage" id="stage-track-sched">실행부</div>
+                        <div class="stage" id="stage-track-query">조회부</div>
+                        <div class="stage" id="stage-track-judge">판정부</div>
+                    </div>
+                </div>
+
+                <div class="flow-module" id="mod-noti">
+                    <div class="module-title">결과 알림 모듈</div>
+                    <div class="module-stages">
+                        <div class="stage" id="stage-noti-clean">정리부</div>
+                        <div class="stage" id="stage-noti-msg">생성부</div>
+                        <div class="stage" id="stage-noti-queue">관리부</div>
+                    </div>
+                </div>
+
+                <!-- 움직이는 작업 객체들이 렌더링될 곳 -->
+                <div id="task-sprite-layer"></div>
+            </div>
+        </div>
+
+        <div class="live-gallery-section">
+            <div class="section-header">
+                <h2>Live Discoveries</h2>
+            </div>
+            <div id="live-gallery" class="live-gallery">
+                <!-- Recent images will be injected here -->
+            </div>
+        </div>
+
+        <div class="terminal-section">
+            <div class="terminal-header">
+                <div class="dot red"></div>
+                <div class="dot yellow"></div>
+                <div class="dot green"></div>
+                <span class="terminal-title">live_crawler_engine.log</span>
+            </div>
+            <div id="log-terminal">
+                <div class="log-entry">Waiting for engine startup...</div>
+            </div>
+        </div>
+    </div>
+    </div>
+
+    <script src="dashboard.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>사진 업로드 - 예시 사이트</title>
+    <link rel="stylesheet" href="style.css?v=1.2">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <header class="header">
+        <div class="header-content">
+            <div class="header-title-box">
+                <h1 class="logo">📤 사진 업로드</h1>
+                <p class="subtitle">새로운 이미지를 갤러리에 추가합니다</p>
+            </div>
+            <div class="header-top">
+                <a href="index.html" class="nav-btn">← 갤러리로 돌아가기</a>
+            </div>
+        </div>
+    </header>
+
+    <main class="container">
+        <!-- 업로드 섹션 -->
+        <section class="upload-page-wrapper">
+            <div class="upload-card">
+                <span class="upload-icon">📸</span>
+                <h2 style="margin-bottom: 24px; color: #202124;">새로운 이미지를 업로드하세요</h2>
+                <div class="upload-form-vertical">
+                    <label class="upload-file-label">
+                        <input type="file" id="imageInput" accept="image/*" multiple>
+                        <span class="upload-file-btn">➕ PC에서 사진 선택하기</span>
+                    </label>
+                    
+                    <!-- 선택 버튼 바로 아래에 미리보기 표시 -->
+                    <div id="previewArea" class="upload-preview-area"></div>
+
+                    <div class="upload-inputs">
+                        <input id="tagInput" class="upload-tag-input" type="text" placeholder="태그 작성 (쉼표로 구분) 예: 자연, 우주, 감성" />
+                        <button id="uploadBtn" class="upload-submit-btn" disabled>갤러리에 등록하기 🚀</button>
+                    </div>
+                </div>
+
+                
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <p>&copy; 2026 크롤링 연습 페이지 - Upload Gallery Image</p>
+    </footer>
+
+    <script src="script.js?v=1.2"></script>
+    <script>
+        // 업로드 성공 후 index.html로 리다이렉트를 고민해볼 수 있습니다. 
+        // 현재는 script.js의 원래 로직을 그대로 사용합니다.
+    </script>
+</body>
+
+</html>

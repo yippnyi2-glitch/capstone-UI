@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>증거 분석 및 동의 결정</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap"
+        rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background-color: #f3f4f6;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-50 min-h-screen p-8">
+
+    <div class="max-w-[1200px] mx-auto space-y-8">
+
+        <!-- Top Container: Analysis Results + Consent Input -->
+        <div class="bg-white rounded-lg shadow-lg overflow-hidden border border-gray-200 flex flex-col md:flex-row">
+
+            <!-- Left Panel: Analysis Results Table -->
+            <div class="w-full md:w-2/3 p-8 border-r border-gray-100">
+                <div class="mb-6 flex justify-between items-end">
+                    <div>
+                        <h2 class="text-xl font-bold text-gray-800 tracking-wide">Analysis Results (증거 분석 결과)</h2>
+                        <p class="text-sm text-gray-500 mt-1">딥페이크로 탐지된 이미지 목록입니다.</p>
+                    </div>
+                </div>
+
+                <div class="overflow-hidden border border-gray-300 rounded-md">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-gray-50 text-gray-700 text-sm font-semibold border-b border-gray-300">
+                                <th class="px-4 py-3 border-r border-gray-300 w-16 text-center">No.</th>
+                                <th class="px-4 py-3 border-r border-gray-300 text-center">Image</th>
+                                <th class="px-4 py-3 border-r border-gray-300 text-center w-36">Deepfake Detection
+                                    Result</th>
+                                <th class="px-4 py-3 text-center w-28">
+                                    <div class="flex flex-col items-center gap-1">
+                                        <span class="text-xs text-red-600 font-bold">Select (비동의)</span>
+                                        <label
+                                            class="flex items-center gap-2 cursor-pointer text-xs font-normal text-gray-600 hover:text-gray-900 transition-colors">
+                                            <input type="checkbox" id="selectAllCheckbox"
+                                                class="w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500 cursor-pointer">
+                                            Select All
+                                        </label>
+                                    </div>
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody id="analysis-tbody" class="text-gray-700 text-sm divide-y divide-gray-300 bg-white">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Right Panel: Consent Decision Area -->
+            <div class="w-full md:w-1/3 p-8 bg-slate-50 flex flex-col justify-center items-center text-center">
+                <div class="mb-8">
+                    <h3 class="text-lg font-bold text-gray-800 mb-2 leading-tight">
+                        Select any deepfake images<br>
+                        <span class="text-indigo-600">created without consent.</span>
+                    </h3>
+                    <p class="text-sm text-gray-500 font-medium">(비동의한 이미지가 있다면<br>테이블에서 선택 후 다음으로 진행하세요.)</p>
+                </div>
+
+                <div class="w-full px-4 space-y-3">
+                    <button id="btnNext"
+                        class="w-full py-3.5 px-4 bg-white border-2 border-slate-800 text-slate-800 font-bold rounded shadow-sm hover:bg-slate-800 hover:text-white transition-all duration-200">
+                        Next
+                    </button>
+                    <button id="btnAllConsented"
+                        class="w-full py-3.5 px-4 bg-white border-2 border-slate-800 text-slate-800 font-bold rounded shadow-sm hover:bg-slate-50 transition-all duration-200">
+                        None. All images are consented.<br>
+                        <span class="text-xs font-normal text-gray-500">(모두 동의 하에 만들어짐)</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom Container: Final Non-Consensual Deepfakes (Initially Hidden) -->
+        <div id="finalOutputContainer"
+            class="bg-white rounded-lg shadow-lg overflow-hidden border border-gray-200 hidden">
+            <div class="p-8">
+                <div class="mb-6 flex justify-between items-end border-b border-gray-200 pb-4">
+                    <div>
+                        <h2 class="text-2xl font-bold text-red-600 tracking-wide">Final Non-Consensual Deepfakes</h2>
+                        <p class="text-sm text-gray-500 mt-1">사용자가 '비동의'로 선택한 최종 불법 딥페이크 데이터입니다.</p>
+                    </div>
+                    <div id="finalCountBadge"
+                        class="bg-red-100 text-red-700 px-4 py-1.5 rounded-full text-sm font-bold border border-red-200">
+                        0 건
+                    </div>
+                </div>
+
+                <div class="overflow-hidden border border-gray-300 rounded-md mb-8 max-w-4xl mx-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-gray-50 text-gray-700 text-sm font-semibold border-b border-gray-300">
+                                <th class="px-4 py-3 border-r border-gray-300 w-16 text-center">No.</th>
+                                <th class="px-4 py-3 border-r border-gray-300 text-center">Image</th>
+                                <th class="px-4 py-3 text-center w-48">Deepfake<br>Detection Result</th>
+                            </tr>
+                        </thead>
+                        <tbody id="final-tbody" class="text-gray-700 text-sm divide-y divide-gray-300 bg-white">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="flex justify-center">
+                    <button id="btnRequestDeletion"
+                        class="py-3 px-8 bg-white border-2 border-red-600 text-red-600 font-bold text-lg rounded shadow-sm hover:bg-red-600 hover:text-white transition-all duration-200">
+                        Request Deletion<br>
+                        <span class="text-xs font-normal opacity-80">(선택된 딥페이크 삭제 요청)</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="app.js"></script>
+</body>
+
+</html>
