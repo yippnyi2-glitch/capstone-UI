@@ -409,3 +409,6 @@ __pycache__/
 *.bak
 *.db-shm
 *.db-wal
+
+# Runtime data (SQLite DBs, uploaded face photos, crawled images) — not version-controlled
+data/

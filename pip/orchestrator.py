@@ -446,6 +446,20 @@ try:
 except Exception as e:
     print(f"[orchestrator] auth 모듈 비활성화: {e}  →  'pip install passlib bcrypt' 가 필요합니다")
 
+# [Analysis Results] 통합 (Phase 3 — GET /api/analysis/results, match_results 테이블 read-only)
+try:
+    from analysis_results import router as analysis_results_router
+    app.include_router(analysis_results_router)
+except Exception as e:
+    print(f"[orchestrator] analysis_results 모듈 비활성화: {e}")
+
+# [Deletion Requests] 통합 (Phase 5 — POST/GET /api/deletion-requests, JWT 인증 + 본인 요청)
+try:
+    from deletion_requests import router as deletion_requests_router
+    app.include_router(deletion_requests_router)
+except Exception as e:
+    print(f"[orchestrator] deletion_requests 모듈 비활성화: {e}")
+
 # [Proxies]
 client = httpx.AsyncClient()
 

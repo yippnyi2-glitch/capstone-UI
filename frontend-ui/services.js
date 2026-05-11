@@ -48,7 +48,8 @@ const authHeaders = () =>
    잡아두고 이후 register / start-from-crawl 에서 재사용한다.
    ("user_id == email" 운영 합의를 코드로 구현하는 셈.)
    DevPager 등으로 회원가입을 건너뛴 경우엔 1회성 임시 id를 만든다(백엔드도 user_id
-   미발견 시 가장 최근 등록 유저로 폴백함). 인증 시스템 도입 시(Phase 2) 정리 대상. */
+   미발견 시 가장 최근 등록 유저로 폴백함). Phase 2 부터는 login/signup 도 응답의 email 로
+   _userId 를 갱신하고 logout 시 클리어한다 → 로그인 후 얼굴등록/분석이 같은 식별자를 쓰게 됨. */
 let _userId = null;
 const resolveUserId = () => {
   if (!_userId) _userId = "web-" + Date.now();
@@ -61,9 +62,50 @@ const resolveUserId = () => {
 const FACE_KEY_MAP = { L90: "left90", L45: "left45", F0: "front", R45: "right45", R90: "right90" };
 let _faceBuffer = {}; // { front, left45, right45, left90, right90 } → data URL string
 
-/* ---------- Analysis run state (mock only — delete in production) ---------- */
-let _analysisStartTime = 0;
-let _scannedBaseline = 2847321;
+/* ---------- Analysis run state (Phase 3 — SSE→polling 어댑터) ----------
+   getAnalysisProgress 는 백엔드 SSE 스트림(/api/stream/{job_id})을 EventSource 로 한 번
+   열어 step/message/종료여부를 누적해 두고, 호출될 때마다 그 스냅샷을 폴링용 형태로 돌려준다.
+   job_id 가 없으면(DevPager 로 분석 화면에 바로 진입 등) 시간 기반 데모 진행률로 폴백한다. */
+let _analysisJobId = null;
+let _analysisES = null;          // EventSource 인스턴스 (1개)
+let _analysisDone = false;       // SSE 'end' 이벤트 수신 여부
+let _analysisStep = "";          // 마지막 update 이벤트의 step
+let _analysisMessage = "";       // 마지막 update 이벤트의 message
+let _analysisStartTime = 0;      // 데모 폴백 타이머 / 진행률 합성용
+let _scannedBaseline = 2847321;  // 데모 폴백 합성 카운터 기준값
+
+// SSE step 순서 (백엔드 run_pipeline_from_crawl 단계) — 진행률 추정용
+const _ANALYSIS_STEPS = ["user_vec", "crawl", "crawl_vec", "compare", "deepfake", "evidence", "done"];
+
+const _resetAnalysisStream = () => {
+  try { _analysisES && _analysisES.close(); } catch { /* noop */ }
+  _analysisES = null;
+  _analysisDone = false;
+  _analysisStep = "";
+  _analysisMessage = "";
+};
+
+const _openAnalysisStream = (jobId) => {
+  if (_analysisES || typeof EventSource === "undefined") return;
+  try {
+    const es = new EventSource(`${CONFIG.API_BASE_URL}/api/stream/${jobId}`);
+    _analysisES = es;
+    es.addEventListener("update", (e) => {
+      try {
+        const d = JSON.parse(e.data);
+        if (d.step) _analysisStep = d.step;
+        if (d.message) _analysisMessage = d.message;
+      } catch { /* malformed event — ignore */ }
+    });
+    es.addEventListener("end", () => {
+      _analysisDone = true;
+      try { es.close(); } catch { /* noop */ }
+      if (_analysisES === es) _analysisES = null;
+    });
+    // onerror 는 따로 안 둔다: EventSource 가 알아서 재연결하고, 백엔드 큐는 소비 안 된
+    // 이벤트를 보존하므로 재개돼도 안전. 'end' 후엔 이미 close 했으므로 재연결 안 함.
+  } catch { /* EventSource 생성 실패 — 폴백 경로가 처리 */ }
+};
 
 /* ---------- JSDoc type definitions (data contract) ---------- */
 
@@ -220,6 +262,7 @@ export const services = {
       throw new ApiError(body.message || "로그인에 실패했습니다", body.code, body.fieldErrors);
     }
     _authToken = body.token || null;
+    if (body.user?.email) _userId = body.user.email; // 이후 register/start-from-crawl 과 동일 식별자
     return body; // { token, user }
   },
 
@@ -251,6 +294,7 @@ export const services = {
       throw new ApiError(body.message || "회원가입에 실패했습니다", body.code, body.fieldErrors);
     }
     _authToken = body.token || null;
+    if (body.user?.email) _userId = body.user.email; // 이후 register/start-from-crawl 과 동일 식별자
     return body; // { token, user }
   },
 
@@ -265,6 +309,7 @@ export const services = {
   async logout() {
     const token = _authToken;
     _authToken = null;
+    _userId = null;
     if (!token) return;
     try {
       await fetch(`${CONFIG.API_BASE_URL}/api/auth/logout`, {
@@ -390,110 +435,141 @@ export const services = {
     if (!res.ok || !body.job_id) {
       throw new ApiError("분석을 시작할 수 없습니다", "START_FAILED");
     }
-    _analysisStartTime = Date.now(); // getAnalysisProgress(mock) 데모 타이머 — Phase 3에서 제거
+    _resetAnalysisStream();             // 이전 분석의 SSE 상태 정리
+    _analysisJobId = body.job_id;       // getAnalysisProgress 가 이 job 의 스트림을 연다
+    _analysisStartTime = Date.now();    // SSE 안 되는 환경(DevPager 등) 폴백 타이머
     return { analysisId: body.job_id };
   },
 
   /**
-   * Get current progress of a running analysis.
-   * The component polls this every second.
+   * Get current progress of a running analysis. The component polls this ~every
+   * second and auto-advances when `done` is true.
+   *
+   * Adapter → 백엔드 SSE 스트림(/api/stream/{job_id})을 EventSource 로 한 번 열어 두고(lazy),
+   * 들어오는 step/message 를 누적, 'end' 이벤트 수신 시 done=true. AnalyzingScreen 은 `done` 만
+   * 사용하므로 나머지 필드는 step 진척도 기반 합성값으로 채운다. job_id 가 없으면 시간 기반 폴백.
    *
    * @param {string} [analysisId]
    * @returns {Promise<AnalysisProgress>}
    */
   async getAnalysisProgress(analysisId) {
-    // TODO(backend-team): 이 함수는 백엔드 신규 개발 필요
-    // 자세한 내용은 BACKEND_TODO.md 참고
-    // Phase 3에서 처리 예정 (분석 진행 상황 — SSE /api/stream 또는 폴링 엔드포인트)
-    // TODO(integration): GET `${CONFIG.API_BASE_URL}/analysis/${analysisId}/progress`
-    //   headers: { ...authHeaders() }
-    //   expected response: AnalysisProgress
-    if (!_analysisStartTime) _analysisStartTime = Date.now();
-    const elapsed = Date.now() - _analysisStartTime;
-    const total = CONFIG.ANALYSIS_DEMO_DURATION_MS;
-    const done = elapsed >= total;
-    const remaining = Math.max(0, Math.ceil((total - elapsed) / 1000));
+    const jobId = analysisId || _analysisJobId;
+
+    // 폴백: 진행 중인 job 이 없으면(예: DevPager 로 화면 점프) 시간 기반 데모 진행률
+    if (!jobId) {
+      if (!_analysisStartTime) _analysisStartTime = Date.now();
+      const elapsed = Date.now() - _analysisStartTime;
+      const total = CONFIG.ANALYSIS_DEMO_DURATION_MS;
+      return {
+        scannedImages: _scannedBaseline + Math.floor(elapsed / 12),
+        domainsScanning: 186 + Math.floor(Math.random() * 4),
+        secondsRemaining: Math.max(0, Math.ceil((total - elapsed) / 1000)),
+        done: elapsed >= total,
+      };
+    }
+
+    // SSE 스트림 lazy 오픈 (이미 끝났으면 다시 열지 않음)
+    if (!_analysisDone) _openAnalysisStream(jobId);
+
+    // step 진척도로 진행률 합성 (화면엔 안 그려지지만 타입 충족 + 디버깅용)
+    const idx = _ANALYSIS_STEPS.indexOf(_analysisStep);
+    const frac = _analysisDone ? 1 : idx >= 0 ? (idx + 1) / (_ANALYSIS_STEPS.length + 1) : 0;
+    const elapsed = _analysisStartTime ? Date.now() - _analysisStartTime : 0;
     return {
       scannedImages: _scannedBaseline + Math.floor(elapsed / 12),
-      domainsScanning: 186 + Math.floor(Math.random() * 4),
-      secondsRemaining: remaining,
-      done,
+      domainsScanning: _analysisDone ? 0 : 184 + Math.floor(Math.random() * 6),
+      secondsRemaining: _analysisDone ? 0 : Math.max(1, Math.round((1 - frac) * 20)),
+      done: _analysisDone,
+      step: _analysisStep,        // 타입엔 없지만 화면이 무시 — 디버깅/향후 step UI 용
+      message: _analysisMessage,
     };
   },
 
   /**
-   * Get the matches found by an analysis run.
+   * Get the matches found by the most recent analysis run.
+   *
+   * Adapter → `GET /api/analysis/results` (백엔드가 match_results 테이블을 읽어 Match[] 로
+   * 변환해 반환). 분석 미실행/0건이면 빈 배열. (현재 백엔드는 analysisId 를 받지 않고 최근
+   * 실행 결과를 돌려준다.)
    *
    * @param {string} [analysisId]
    * @returns {Promise<Match[]>}
+   * @throws {ApiError} on transport/HTTP failure
    */
   async getAnalysisResults(analysisId) {
-    // TODO(backend-team): 이 함수는 백엔드 신규 개발 필요
-    // 자세한 내용은 BACKEND_TODO.md 참고
-    // Phase 3에서 처리 예정 (분석 결과 — Evidence 필드 보강 + job/user 필터 필요)
-    // TODO(integration): GET `${CONFIG.API_BASE_URL}/analysis/${analysisId}/results`
-    //   headers: { ...authHeaders() }
-    await sleep(250);
-    return MOCK.matches;
+    let res;
+    try {
+      res = await fetch(`${CONFIG.API_BASE_URL}/api/analysis/results`, {
+        headers: { ...authHeaders() },
+      });
+    } catch {
+      throw new ApiError("분석 결과를 불러올 수 없습니다 (네트워크 오류)", "NETWORK");
+    }
+    if (!res.ok) {
+      throw new ApiError("분석 결과를 불러올 수 없습니다", "RESULTS_FAILED");
+    }
+    const body = await res.json().catch(() => null);
+    return Array.isArray(body) ? body : [];
   },
 
   /**
    * Submit a deletion request for the selected matches.
    *
+   * Adapter → `POST /api/deletion-requests` (JWT 인증; body `{ matchIds, consents, memo }`).
+   * 백엔드가 영수증(receiptId/sentAt 등 서버 생성)을 발급해 그대로 반환한다. 검증 실패는
+   * `{ message, code:'VALIDATION', fieldErrors }`, 미인증은 401 `{code:'UNAUTHENTICATED'}`.
+   *
    * @param {string[]}     matchIds
    * @param {ConsentFlags} consents
    * @param {string}       memo       Free-text note (≤ 500 chars)
    * @returns {Promise<RequestReceipt>}
+   * @throws {ApiError} on validation / auth / transport failure
    */
   async submitDeletionRequest(matchIds, consents, memo) {
-    // TODO(backend-team): 이 함수는 백엔드 신규 개발 필요
-    // 자세한 내용은 BACKEND_TODO.md 참고
-    // Phase 5에서 처리 예정 (삭제 요청 — takedown 모듈 fan-out + 영수증 발급)
-    // TODO(integration): POST `${CONFIG.API_BASE_URL}/deletion-requests`
-    //   headers: { ...authHeaders(), "Content-Type": "application/json" }
-    //   body:    { matchIds, consents, memo }
-    //   expected response: RequestReceipt (server-generated receiptId & sentAt)
-    await sleep(700);
-    const now = new Date();
-    return {
-      receiptId: fmtReceiptId(now),
-      count: matchIds.length,
-      legalBasis: "정보통신망법 §44-2",
-      sentAt: fmtReceiptTime(now),
-      trackable: true,
-    };
+    let res;
+    try {
+      res = await fetch(`${CONFIG.API_BASE_URL}/api/deletion-requests`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ matchIds, consents, memo }),
+      });
+    } catch {
+      throw new ApiError("삭제 요청을 전송할 수 없습니다 (네트워크 오류)", "NETWORK");
+    }
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new ApiError(body.message || "삭제 요청 전송에 실패했습니다", body.code, body.fieldErrors);
+    }
+    return body; // RequestReceipt
   },
 
   /**
    * Get the status overview (stats + items) for the current user.
    *
+   * Adapter → `GET /api/deletion-requests?status=<filter>` (JWT 인증). 백엔드가 본인 요청만
+   * 추려 `{ stats, items }` 로 반환 — stats 는 필터와 무관한 전체 기준, items 는 필터 적용.
+   *
    * @param {'all'|'wait'|'done'|'review'} [filter='all']
    * @returns {Promise<StatusOverview>}
+   * @throws {ApiError} on auth / transport failure
    */
   async getRequestStatus(filter = "all") {
-    // TODO(backend-team): 이 함수는 백엔드 신규 개발 필요
-    // 자세한 내용은 BACKEND_TODO.md 참고
-    // Phase 5에서 처리 예정 (처리 현황 — user-scoped 추적 + 3-stage retry 모델)
-    // TODO(integration): GET `${CONFIG.API_BASE_URL}/deletion-requests?status=${filter}`
-    //   headers: { ...authHeaders() }
-    //   Note: stats should reflect the FULL set (not filtered), since users
-    //   need the overview regardless of which tab they're viewing.
-    //   Backend may return stats and items as separate endpoints, or combined.
-    await sleep(250);
-
-    const all = MOCK.statusLog;
-    // Stats derived from the entire dataset — never affected by `filter`.
-    const stats = {
-      total:  all.length,
-      wait:   all.filter((r) => r.statusKind === "wait").length,
-      review: all.filter((r) => r.statusKind === "review").length,
-      done:   all.filter((r) => r.statusKind === "done").length,
-    };
-
-    const items =
-      filter === "all" ? all : all.filter((r) => r.statusKind === filter);
-
-    return { stats, items };
+    let res;
+    try {
+      res = await fetch(
+        `${CONFIG.API_BASE_URL}/api/deletion-requests?status=${encodeURIComponent(filter || "all")}`,
+        { headers: { ...authHeaders() } }
+      );
+    } catch {
+      throw new ApiError("처리 현황을 불러올 수 없습니다 (네트워크 오류)", "NETWORK");
+    }
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new ApiError(body.message || "처리 현황을 불러올 수 없습니다", body.code || "STATUS_FAILED");
+    }
+    const body = await res.json().catch(() => null);
+    if (body && body.stats && Array.isArray(body.items)) return body;
+    return { stats: { total: 0, wait: 0, review: 0, done: 0 }, items: [] };
   },
 
   /**
