@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { T, FONT_SERIF, FONT_SANS, FONT_MONO, grainBg } from "../styles/tokens";
 import { useToast } from "../context/ToastContext";
 import { ApiError, services } from "../services";
@@ -55,6 +55,19 @@ export default function CaptureScreen({ go }) {
       return n;
     });
   };
+
+  // 5장 모두 업로드되고 백엔드 등록(=얼굴 벡터 추출)까지 끝나면(=업로드 in-flight 없음)
+  // 잠시 뒤 자동으로 특징 추출 시각화 화면으로 이동한다. (1회만 — navedRef 가드)
+  const navedRef = useRef(false);
+  const allUploaded = completed === angles.length;
+  const idle = Object.keys(uploading).length === 0;
+  useEffect(() => {
+    if (navedRef.current || !allUploaded || !idle) return;
+    navedRef.current = true;
+    const t = setTimeout(() => go("vectorExtract"), 1100);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allUploaded, idle]);
 
   return (
     <div style={{ backgroundColor: T.bg, minHeight: "100vh" }}>
@@ -246,7 +259,7 @@ export default function CaptureScreen({ go }) {
       >
         <CtaGhost onClick={() => go("signup")}>← 이전 단계로</CtaGhost>
         <CtaPrimary
-          onClick={() => completed === angles.length && go("login")}
+          onClick={() => completed === angles.length && go("vectorExtract")}
           style={{
             opacity: completed === angles.length ? 1 : 0.4,
             pointerEvents: completed === angles.length ? "auto" : "none",
@@ -254,7 +267,7 @@ export default function CaptureScreen({ go }) {
         >
           <span>
             {completed === angles.length
-              ? "5장 모두 등록 — 로그인"
+              ? "5장 모두 등록 — 특징 추출"
               : `${angles.length - completed}장 더 등록해주세요`}
           </span>
           <span>→</span>

@@ -573,6 +573,54 @@ export const services = {
   },
 
   /**
+   * Get a summary of the face feature vector extracted during registration.
+   *
+   * Adapter → `GET /api/face-vector-summary?user_id=<id>` (orchestrator, user_face_vectors
+   * 테이블 read-only). 백엔드가 numpy 미설치/행 없음이면 status!=="success" 를 주므로,
+   * 그 경우엔 시연용 합성 요약으로 폴백한다(services 레이어 전반의 mock 폴백 관행과 동일).
+   * user_id 가 없으면(DevPager 점프 등) 빈 문자열로 보내고 백엔드가 최근 등록 유저로 폴백한다.
+   *
+   * @returns {Promise<{ points:number, imageCount:number, l2Norm:number,
+   *                     sample:number[], stats:{min:number,max:number,mean:number},
+   *                     source:'backend'|'demo' }>}
+   */
+  async getFaceVectorSummary() {
+    try {
+      const res = await fetch(
+        `${CONFIG.API_BASE_URL}/api/face-vector-summary?user_id=${encodeURIComponent(_userId || "")}`,
+        { headers: { ...authHeaders() } }
+      );
+      if (res.ok) {
+        const b = await res.json().catch(() => ({}));
+        if (b && b.status === "success") {
+          return {
+            points: b.vector_dim || 512,
+            imageCount: b.image_count || 5,
+            l2Norm: typeof b.l2_norm === "number" ? b.l2_norm : 1,
+            sample: Array.isArray(b.sample) ? b.sample : [],
+            stats: b.stats && typeof b.stats === "object" ? b.stats : { min: 0, max: 0, mean: 0 },
+            source: "backend",
+          };
+        }
+      }
+    } catch {
+      /* 네트워크/백엔드 미가용 — 아래 데모 폴백 사용 */
+    }
+    // 데모 폴백: 512차원 L2 정규화 임베딩의 그럴듯한 합성 통계 + 앞 24개 차원 샘플
+    const sample = Array.from({ length: 24 }, (_, i) =>
+      Math.round(Math.sin(i * 1.73 + 0.4) * 0.061 * 1e6) / 1e6
+    );
+    return {
+      points: 512,
+      imageCount: 5,
+      l2Norm: 1,
+      sample,
+      stats: { min: -0.0912, max: 0.0934, mean: 0.0008 },
+      source: "demo",
+    };
+  },
+
+  /**
    * Get the welcome dashboard summary (user info + cumulative stats).
    *
    * @returns {Promise<DashboardSummary>}

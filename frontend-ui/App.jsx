@@ -6,6 +6,7 @@ import { ToastProvider } from "./context/ToastContext";
 import LoginScreen from "./screens/LoginScreen";
 import SignupScreen from "./screens/SignupScreen";
 import CaptureScreen from "./screens/CaptureScreen";
+import VectorExtractScreen from "./screens/VectorExtractScreen";
 import WelcomeScreen from "./screens/WelcomeScreen";
 import AnalyzingScreen from "./screens/AnalyzingScreen";
 import ResultsScreen from "./screens/ResultsScreen";
@@ -37,7 +38,7 @@ export default function FaceDeletionApp() {
  */
 function AppInner() {
   const [screen, setScreen] = useState("login");
-  // login | signup | capture | welcome | analyzing | results | review | sent | status
+  // login | signup | capture | vectorExtract | welcome | analyzing | results | review | sent | status
 
   const [selected, setSelected] = useState([]);
   /** @type {[import("./services").RequestReceipt|null, Function]} */
@@ -73,6 +74,7 @@ function AppInner() {
         {screen === "login" && <LoginScreen go={go} />}
         {screen === "signup" && <SignupScreen go={go} />}
         {screen === "capture" && <CaptureScreen go={go} />}
+        {screen === "vectorExtract" && <VectorExtractScreen go={go} />}
         {screen === "welcome" && <WelcomeScreen go={go} />}
         {screen === "analyzing" && <AnalyzingScreen go={go} />}
         {screen === "results" && (
@@ -93,7 +95,7 @@ function AppInner() {
 
 /**
  * Dev-only screen jumper (small, unobtrusive). Lets you skip directly to any
- * of the 9 screens for testing without going through the full flow.
+ * of the 10 screens for testing without going through the full flow.
  *
  * To remove for production: just delete the `<DevPager />` line above.
  */
@@ -102,12 +104,13 @@ function DevPager({ screen, go }) {
     ["login", "01"],
     ["signup", "02"],
     ["capture", "03"],
-    ["welcome", "04"],
-    ["analyzing", "05"],
-    ["results", "06"],
-    ["review", "07"],
-    ["sent", "08"],
-    ["status", "09"],
+    ["vectorExtract", "04"],
+    ["welcome", "05"],
+    ["analyzing", "06"],
+    ["results", "07"],
+    ["review", "08"],
+    ["sent", "09"],
+    ["status", "10"],
   ];
   return (
     <div
