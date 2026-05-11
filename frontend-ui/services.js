@@ -41,6 +41,26 @@ let _authToken = null;
 const authHeaders = () =>
   _authToken ? { Authorization: `Bearer ${_authToken}` } : {};
 
+/* ---------- Backend identity & face-photo buffer (Phase 1 adapter state) ----------
+   백엔드(orchestrator.py)에는 인증/계정 시스템이 없고 식별자가 user_id 문자열 하나뿐이다.
+   uploadFacePhoto / startAnalysis 시그니처에는 user_id가 없으므로, 회원가입 흐름에서
+   항상 먼저 호출되는 checkEmailDuplicate(email)가 통과하는 순간 그 email을 _userId 로
+   잡아두고 이후 register / start-from-crawl 에서 재사용한다.
+   ("user_id == email" 운영 합의를 코드로 구현하는 셈.)
+   DevPager 등으로 회원가입을 건너뛴 경우엔 1회성 임시 id를 만든다(백엔드도 user_id
+   미발견 시 가장 최근 등록 유저로 폴백함). 인증 시스템 도입 시(Phase 2) 정리 대상. */
+let _userId = null;
+const resolveUserId = () => {
+  if (!_userId) _userId = "web-" + Date.now();
+  return _userId;
+};
+
+/* uploadFacePhoto는 각도별로 1장씩(5회) 호출되지만 백엔드 POST /api/register 는 5장을
+   한 번에 받는다. 모인 사진(data URL)을 여기에 버퍼링했다가 5장이 다 차면 일괄 전송한다.
+   FACE_KEY_MAP: 프론트 각도키 → 백엔드 이미지 키. */
+const FACE_KEY_MAP = { L90: "left90", L45: "left45", F0: "front", R45: "right45", R90: "right90" };
+let _faceBuffer = {}; // { front, left45, right45, left90, right90 } → data URL string
+
 /* ---------- Analysis run state (mock only — delete in production) ---------- */
 let _analysisStartTime = 0;
 let _scannedBaseline = 2847321;
@@ -175,112 +195,203 @@ export const services = {
   /**
    * Authenticate an existing user.
    *
+   * POST /api/auth/login → { token, user }. 실패 시 백엔드가 { message, code, fieldErrors }
+   * 를 주므로 그대로 ApiError 로 변환. 성공 시 토큰을 모듈 상태에 저장(이후 fetch 의
+   * authHeaders() 가 자동 사용).
+   *
    * @param {string} email
    * @param {string} password
    * @returns {Promise<AuthResult>}
    * @throws {ApiError} when credentials are invalid
    */
   async login(email, password) {
-    // TODO(integration): POST `${CONFIG.API_BASE_URL}/auth/login`
-    //   headers: { "Content-Type": "application/json" }
-    //   body:    { email, password }
-    //   expected response: { token, user }
-    //   on 4xx: throw new ApiError(message, code, fieldErrors)
-    await sleep(400);
-    const result = {
-      token: "mock-token-" + Date.now(),
-      user: { ...MOCK.user, email: email || MOCK.user.email },
-    };
-    _authToken = result.token;
-    return result;
+    let res;
+    try {
+      res = await fetch(`${CONFIG.API_BASE_URL}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+    } catch {
+      throw new ApiError("로그인할 수 없습니다 (네트워크 오류)", "NETWORK");
+    }
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new ApiError(body.message || "로그인에 실패했습니다", body.code, body.fieldErrors);
+    }
+    _authToken = body.token || null;
+    return body; // { token, user }
   },
 
   /**
    * Create a new account.
    *
+   * POST /api/auth/signup (body: { email, password, name, birth, gender }) → { token, user }.
+   * 검증 실패는 백엔드가 { message, code:'VALIDATION', fieldErrors } 로, 이메일 중복은
+   * code:'EMAIL_TAKEN' (+ fieldErrors.email) 로 응답 → ApiError 로 변환. (Phase 1 의
+   * checkEmailDuplicate 가 잡아둔 _userId(=email) 와 동일 식별자로 가입됨.)
+   *
    * @param {SignupProfile} profile
    * @returns {Promise<AuthResult>}
-   * @throws {ApiError} when validation fails (with fieldErrors)
+   * @throws {ApiError} when validation fails (with fieldErrors) or email is taken
    */
   async signup(profile) {
-    // TODO(integration): POST `${CONFIG.API_BASE_URL}/auth/signup`
-    //   headers: { "Content-Type": "application/json" }
-    //   body:    profile
-    //   expected response: { token, user }
-    //   on 4xx: throw new ApiError(message, code, fieldErrors)
-    //     example: throw new ApiError("validation failed", "VALIDATION",
-    //              { email: "이미 사용 중", password: "너무 짧음" })
-    await sleep(500);
-    const result = {
-      token: "mock-token-" + Date.now(),
-      user: { ...MOCK.user, email: profile.email, name: profile.name },
-    };
-    _authToken = result.token;
-    return result;
+    let res;
+    try {
+      res = await fetch(`${CONFIG.API_BASE_URL}/api/auth/signup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(profile),
+      });
+    } catch {
+      throw new ApiError("회원가입할 수 없습니다 (네트워크 오류)", "NETWORK");
+    }
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new ApiError(body.message || "회원가입에 실패했습니다", body.code, body.fieldErrors);
+    }
+    _authToken = body.token || null;
+    return body; // { token, user }
   },
 
   /**
    * Sign out the current user.
    *
+   * 토큰을 즉시 로컬에서 비우고, 백엔드 POST /api/auth/logout 으로 블랙리스트 처리한다.
+   * 네트워크 실패는 무시(로컬 로그아웃은 이미 완료).
+   *
    * @returns {Promise<void>}
    */
   async logout() {
-    // TODO(integration): POST `${CONFIG.API_BASE_URL}/auth/logout`
-    //   headers: { ...authHeaders() }
+    const token = _authToken;
     _authToken = null;
+    if (!token) return;
+    try {
+      await fetch(`${CONFIG.API_BASE_URL}/api/auth/logout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ token }),
+      });
+    } catch {
+      /* 네트워크 실패해도 로컬 로그아웃은 유지 */
+    }
   },
 
   /**
    * Check whether an email is available.
+   *
+   * Adapter → 백엔드에는 email/계정 개념이 없고 식별자가 user_id 하나뿐이라,
+   * email 문자열을 그대로 user_id 로 보고 `GET /api/check_user_id?id=<email>` 를
+   * 호출한다. 응답 `{ exists: boolean }` 을 프론트가 기대하는 형식으로 변환하며,
+   * 사용 가능한 경우 그 email 을 _userId 에 저장해 이후 register / start-from-crawl
+   * 에서 재사용한다. (백엔드 무수정 — Phase 1)
    *
    * @param {string} email
    * @returns {Promise<{ available: true }>}
    * @throws {ApiError} when email is taken (code 'EMAIL_TAKEN', fieldErrors.email)
    */
   async checkEmailDuplicate(email) {
-    // TODO(integration): GET `${CONFIG.API_BASE_URL}/auth/check-email?email=${...}`
-    //   on 409: throw new ApiError("이메일 중복", "EMAIL_TAKEN",
-    //                              { email: "이미 사용 중인 이메일입니다" })
-    await sleep(700);
-    if (email.includes("taken")) {
+    let res;
+    try {
+      res = await fetch(
+        `${CONFIG.API_BASE_URL}/api/check_user_id?id=${encodeURIComponent(email)}`,
+        { headers: { ...authHeaders() } }
+      );
+    } catch {
+      throw new ApiError("확인 중 오류가 발생했습니다", "NETWORK");
+    }
+    if (!res.ok) throw new ApiError("확인 중 오류가 발생했습니다", "NETWORK");
+    const body = await res.json().catch(() => ({}));
+    if (body.exists) {
       throw new ApiError("이메일 중복", "EMAIL_TAKEN", {
         email: "이미 사용 중인 이메일입니다",
       });
     }
+    _userId = email; // 회원가입 흐름에서 이후 단계가 쓸 user_id로 채택
     return { available: true };
   },
 
   /**
    * Upload one face photo for a given angle slot.
    *
+   * Adapter → 프론트는 각도별로 1장씩(총 5회) 호출하지만 백엔드 `POST /api/register`
+   * 는 5장을 한 번에 받는다. 그래서 1~4번째 호출은 사진(data URL)을 메모리(_faceBuffer)
+   * 에 담아두고 곧바로 success 로 응답하고, 5장이 모두 모이는 호출에서 한꺼번에
+   * `/api/register` 로 전송한다. 재업로드("교체")는 해당 슬롯을 덮어쓰고 다시 등록한다
+   * (백엔드가 INSERT OR REPLACE 라 idempotent). user_id 는 _userId(회원가입 시 확보)
+   * 또는 임시 id 사용. 각도 실시간 검증(/api/validate_pose)은 웹캠 캡처 도입 시 추가 예정.
+   *
    * @param {'L90'|'L45'|'F0'|'R45'|'R90'} angleKey
-   * @param {Blob}   fileBlob   The image binary
-   * @param {string} dataUrl    Optional preview data URL (for client-side display)
+   * @param {Blob}   fileBlob   The image binary (백엔드는 data URL을 받으므로 미사용)
+   * @param {string} dataUrl    The image as a data URL ("data:image/...;base64,...")
    * @returns {Promise<{ accepted: boolean, storedUrl: string }>}
-   * @throws {ApiError} when file is rejected (e.g., no face detected)
+   * @throws {ApiError} when the batch registration is rejected
    */
   async uploadFacePhoto(angleKey, fileBlob, dataUrl) {
-    // TODO(integration): POST `${CONFIG.API_BASE_URL}/face-photos` (multipart)
-    //   headers: { ...authHeaders() }   (do NOT set Content-Type for multipart)
-    //   body:    FormData with fields: angle, file
-    //   on 4xx: throw new ApiError(message, code) — codes:
-    //     'FACE_NOT_DETECTED' / 'FILE_TOO_LARGE' / 'INVALID_FORMAT' / 'WRONG_ANGLE'
-    await sleep(300);
-    return { accepted: true, storedUrl: "mock://stored" };
+    const backendKey = FACE_KEY_MAP[angleKey];
+    if (!backendKey) throw new ApiError("알 수 없는 각도입니다", "WRONG_ANGLE");
+    _faceBuffer[backendKey] = dataUrl;
+
+    // 아직 5장이 다 모이지 않았으면 메모리에만 담아두고 성공으로 응답.
+    if (Object.keys(_faceBuffer).length < 5) {
+      return { accepted: true, storedUrl: dataUrl };
+    }
+
+    // 5장 완성 → 백엔드로 일괄 등록.
+    let res;
+    try {
+      res = await fetch(`${CONFIG.API_BASE_URL}/api/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({
+          user_id: resolveUserId(),
+          mode: "new",
+          images: {
+            front: _faceBuffer.front,
+            left45: _faceBuffer.left45,
+            right45: _faceBuffer.right45,
+            left90: _faceBuffer.left90,
+            right90: _faceBuffer.right90,
+          },
+        }),
+      });
+    } catch {
+      throw new ApiError("얼굴 사진 등록 중 네트워크 오류가 발생했습니다", "NETWORK");
+    }
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || body.status !== "success") {
+      throw new ApiError(body.message || "얼굴 사진 등록에 실패했습니다", "REGISTER_FAILED");
+    }
+    if (body.user_id) _userId = body.user_id; // 백엔드가 확정한 user_id 채택
+    return { accepted: true, storedUrl: dataUrl };
   },
 
   /**
    * Start a new analysis run for the current user.
    *
+   * Adapter → `POST /api/start-from-crawl` (body `{ user_id }`) 를 호출하고, 백엔드
+   * 응답 `{ job_id }` 를 프론트가 기대하는 `{ analysisId }` 로 키 리매핑해서 반환한다.
+   * user_id 는 _userId(회원가입 흐름에서 확보) 또는 임시 id 사용. (백엔드 무수정 — Phase 1)
+   *
    * @returns {Promise<{ analysisId: string }>}
    */
   async startAnalysis() {
-    // TODO(integration): POST `${CONFIG.API_BASE_URL}/analysis`
-    //   headers: { ...authHeaders() }
-    //   expected response: { analysisId }
-    await sleep(200);
-    _analysisStartTime = Date.now();
-    return { analysisId: "a-" + Date.now() };
+    let res;
+    try {
+      res = await fetch(`${CONFIG.API_BASE_URL}/api/start-from-crawl`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ user_id: resolveUserId() }),
+      });
+    } catch {
+      throw new ApiError("분석을 시작할 수 없습니다", "START_FAILED");
+    }
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || !body.job_id) {
+      throw new ApiError("분석을 시작할 수 없습니다", "START_FAILED");
+    }
+    _analysisStartTime = Date.now(); // getAnalysisProgress(mock) 데모 타이머 — Phase 3에서 제거
+    return { analysisId: body.job_id };
   },
 
   /**
@@ -291,6 +402,9 @@ export const services = {
    * @returns {Promise<AnalysisProgress>}
    */
   async getAnalysisProgress(analysisId) {
+    // TODO(backend-team): 이 함수는 백엔드 신규 개발 필요
+    // 자세한 내용은 BACKEND_TODO.md 참고
+    // Phase 3에서 처리 예정 (분석 진행 상황 — SSE /api/stream 또는 폴링 엔드포인트)
     // TODO(integration): GET `${CONFIG.API_BASE_URL}/analysis/${analysisId}/progress`
     //   headers: { ...authHeaders() }
     //   expected response: AnalysisProgress
@@ -314,6 +428,9 @@ export const services = {
    * @returns {Promise<Match[]>}
    */
   async getAnalysisResults(analysisId) {
+    // TODO(backend-team): 이 함수는 백엔드 신규 개발 필요
+    // 자세한 내용은 BACKEND_TODO.md 참고
+    // Phase 3에서 처리 예정 (분석 결과 — Evidence 필드 보강 + job/user 필터 필요)
     // TODO(integration): GET `${CONFIG.API_BASE_URL}/analysis/${analysisId}/results`
     //   headers: { ...authHeaders() }
     await sleep(250);
@@ -329,6 +446,9 @@ export const services = {
    * @returns {Promise<RequestReceipt>}
    */
   async submitDeletionRequest(matchIds, consents, memo) {
+    // TODO(backend-team): 이 함수는 백엔드 신규 개발 필요
+    // 자세한 내용은 BACKEND_TODO.md 참고
+    // Phase 5에서 처리 예정 (삭제 요청 — takedown 모듈 fan-out + 영수증 발급)
     // TODO(integration): POST `${CONFIG.API_BASE_URL}/deletion-requests`
     //   headers: { ...authHeaders(), "Content-Type": "application/json" }
     //   body:    { matchIds, consents, memo }
@@ -351,6 +471,9 @@ export const services = {
    * @returns {Promise<StatusOverview>}
    */
   async getRequestStatus(filter = "all") {
+    // TODO(backend-team): 이 함수는 백엔드 신규 개발 필요
+    // 자세한 내용은 BACKEND_TODO.md 참고
+    // Phase 5에서 처리 예정 (처리 현황 — user-scoped 추적 + 3-stage retry 모델)
     // TODO(integration): GET `${CONFIG.API_BASE_URL}/deletion-requests?status=${filter}`
     //   headers: { ...authHeaders() }
     //   Note: stats should reflect the FULL set (not filtered), since users
@@ -379,6 +502,9 @@ export const services = {
    * @returns {Promise<DashboardSummary>}
    */
   async getDashboardSummary() {
+    // TODO(backend-team): 이 함수는 백엔드 신규 개발 필요
+    // 자세한 내용은 BACKEND_TODO.md 참고
+    // Phase 4에서 처리 예정 (대시보드 집계 — monitor/stats + Evidence/요청 카운트 합성)
     // TODO(integration): GET `${CONFIG.API_BASE_URL}/dashboard/summary`
     //   headers: { ...authHeaders() }
     await sleep(200);

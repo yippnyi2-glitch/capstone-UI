@@ -1,0 +1,51 @@
+# =============================================================================
+# 백엔드 통합 실행용 Python 의존성 (전체)
+# -----------------------------------------------------------------------------
+# 기존에 pip/requirements.txt, module_vector_match/requirements.txt 가 있으나
+# orchestrator.py 가 동적으로 끌어다 쓰는 모든 모듈
+#   (module_crawl_takedown / module_vector_extract / module_vector_match /
+#    deepfake_server.py + deepfake_detector.py)
+# 의 import 를 분석해 한 파일로 합친 것입니다. 백엔드 코드는 수정하지 않았습니다.
+#
+# 설치:  python -m pip install -r requirements.txt
+# (가상환경 권장:  python -m venv .venv  &&  .venv\Scripts\activate)
+# =============================================================================
+
+# --- 웹 서버 (orchestrator + 각 모듈 FastAPI) ---
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9        # Form / File / UploadFile 처리
+pydantic>=2.0.0
+
+# --- HTTP 클라이언트 ---
+httpx>=0.27.0                  # orchestrator.py 프록시 / 서비스 호출
+aiohttp>=3.9.0
+requests>=2.31.0               # module_crawl_takedown
+
+# --- 이미지 / 비전 ---
+opencv-python>=4.8.0           # cv2  ← 'No module named cv2' 의 원인
+numpy>=1.24.0
+Pillow>=10.0.0
+
+# --- 웹 크롤링 ---
+beautifulsoup4>=4.12.0         # bs4
+
+# --- 캐시 ---
+redis>=5.0.0                   # module_vector_extract / module_vector_match
+
+# --- 설정 ---
+python-dotenv>=1.0.0
+
+# --- 얼굴 임베딩 (module_vector_extract) ---
+insightface>=0.7.3
+onnxruntime>=1.16.0            # insightface 런타임 (CPU)
+
+# --- 딥페이크 탐지 (deepfake_detector.py / pip/deepfake_server.py) ---
+torch>=2.0.0
+torchvision>=0.15.0
+timm>=0.9.0
+mediapipe>=0.10.0              # blaze_face_short_range.tflite 사용
+
+# --- 인증 (Phase 2 — pip/auth/) ---
+PyJWT>=2.8.0                   # JWT 발급/검증 (import jwt)
+bcrypt>=4.0.0                  # 비밀번호 해싱 (bcrypt 직접 사용 — passlib 미사용: 1.7.4 가 bcrypt 4.1+ 와 호환 안 됨)

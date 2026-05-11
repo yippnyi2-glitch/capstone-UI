@@ -9,8 +9,16 @@ import base64
 import importlib.util
 import shutil
 import sqlite3
-import cv2
-import numpy as np
+# cv2/numpy 는 얼굴·벡터 기능 전용. 미설치 시 None 으로 두고 서버는 계속 기동
+# (해당 엔드포인트 호출 시점에만 실패 — auth 등 나머지는 정상 동작).
+try:
+    import cv2
+except ImportError:
+    cv2 = None
+try:
+    import numpy as np
+except ImportError:
+    np = None
 import re
 from datetime import datetime
 from typing import AsyncGenerator
@@ -56,24 +64,42 @@ SERVICES = {
     'user_photo': "http://localhost:13001",
 }
 
+# 동적 모듈 로드 — 무거운 의존성(cv2/numpy/insightface/bs4/requests/redis 등) 미설치 시
+# 해당 모듈만 비활성화하고 서버는 계속 기동한다. (import/로딩 부분만 가드, 모듈 내부 로직 무변경)
+
 # [Crawl/Takedown] 로드
-crawl_main_path = os.path.join(BASE_DIR, "module_crawl_takedown", "server.py")
-vec_crawl = load_module("vec_crawl_main", crawl_main_path)
-monitor_router = vec_crawl.monitor_router
-crawl_api_router = vec_crawl.api_router
+try:
+    crawl_main_path = os.path.join(BASE_DIR, "module_crawl_takedown", "server.py")
+    vec_crawl = load_module("vec_crawl_main", crawl_main_path)
+    monitor_router = vec_crawl.monitor_router
+    crawl_api_router = vec_crawl.api_router
+except Exception as e:
+    print(f"[orchestrator] crawl/takedown 모듈 비활성화: {e}")
+    vec_crawl = None
+    monitor_router = crawl_api_router = None
 
 # [Vector Extract] 로드
-extract_main_path = os.path.join(BASE_DIR, "module_vector_extract", "src", "main.py")
-vec_extract = load_module("vec_extract_main", extract_main_path)
-extract_feature = vec_extract.extract_feature
-extract_pipeline_batch = vec_extract.extract_pipeline_batch
+try:
+    extract_main_path = os.path.join(BASE_DIR, "module_vector_extract", "src", "main.py")
+    vec_extract = load_module("vec_extract_main", extract_main_path)
+    extract_feature = vec_extract.extract_feature
+    extract_pipeline_batch = vec_extract.extract_pipeline_batch
+except Exception as e:
+    print(f"[orchestrator] vector_extract 모듈 비활성화: {e}")
+    vec_extract = None
+    extract_feature = extract_pipeline_batch = None
 
 # [Vector Match] 로드
-match_main_path = os.path.join(BASE_DIR, "module_vector_match", "src", "main.py")
-vec_match = load_module("vec_match_main", match_main_path)
-start_batch_compare = vec_match.start_batch_compare
-compare_status = vec_match.compare_status
-compare_single = vec_match.compare_single
+try:
+    match_main_path = os.path.join(BASE_DIR, "module_vector_match", "src", "main.py")
+    vec_match = load_module("vec_match_main", match_main_path)
+    start_batch_compare = vec_match.start_batch_compare
+    compare_status = vec_match.compare_status
+    compare_single = vec_match.compare_single
+except Exception as e:
+    print(f"[orchestrator] vector_match 모듈 비활성화: {e}")
+    vec_match = None
+    start_batch_compare = compare_status = compare_single = None
 
 # --- 3. 글로벌 상태 및 유틸리티 ---
 pipeline_jobs: dict[str, dict] = {}
@@ -393,22 +419,32 @@ async def register_user(req: RegisterRequest):
         print(f"Error in register: {e}")
         return {"status": "fail", "message": str(e)}
 
-# [Crawl] 통합
-app.include_router(monitor_router)
-app.include_router(crawl_api_router)
+# [Crawl] 통합 (모듈 로드 실패 시 라우터 등록 건너뜀)
+if monitor_router is not None:
+    app.include_router(monitor_router)
+    app.include_router(crawl_api_router)
 
 # [Extract] 통합
-extract_router = APIRouter(prefix="/extract")
-extract_router.add_api_route("/", extract_feature, methods=["POST"])
-extract_router.add_api_route("/batch", extract_pipeline_batch, methods=["POST"])
-app.include_router(extract_router)
+if extract_feature is not None:
+    extract_router = APIRouter(prefix="/extract")
+    extract_router.add_api_route("/", extract_feature, methods=["POST"])
+    extract_router.add_api_route("/batch", extract_pipeline_batch, methods=["POST"])
+    app.include_router(extract_router)
 
 # [Compare] 통합
-compare_router = APIRouter(prefix="/compare")
-compare_router.add_api_route("/batch", start_batch_compare, methods=["POST"])
-compare_router.add_api_route("/status", compare_status, methods=["GET"])
-compare_router.add_api_route("/single", compare_single, methods=["POST"])
-app.include_router(compare_router)
+if start_batch_compare is not None:
+    compare_router = APIRouter(prefix="/compare")
+    compare_router.add_api_route("/batch", start_batch_compare, methods=["POST"])
+    compare_router.add_api_route("/status", compare_status, methods=["GET"])
+    compare_router.add_api_route("/single", compare_single, methods=["POST"])
+    app.include_router(compare_router)
+
+# [Auth] 통합 (Phase 2 — 회원가입/로그인/로그아웃, /api/auth/*; import 시 auth_users 테이블 생성)
+try:
+    from auth.routes import router as auth_router
+    app.include_router(auth_router)
+except Exception as e:
+    print(f"[orchestrator] auth 모듈 비활성화: {e}  →  'pip install passlib bcrypt' 가 필요합니다")
 
 # [Proxies]
 client = httpx.AsyncClient()
